@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Панель Оператора</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #f3f4f6; }
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+        .toggle-checkbox:checked { right: 0; border-color: #3b82f6; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #3b82f6; }
+    </style>
+</head>
+<body class="h-[100dvh] flex overflow-hidden">
+
+    <!-- Левая панель: Список (на мобилках скрывается при чате) -->
+    <aside id="sidebar-list" class="w-full md:w-80 bg-white border-r border-gray-200 flex flex-col z-10 absolute md:static h-full transition-transform duration-300 transform md:translate-x-0">
+        <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+            <h1 class="font-bold text-gray-800 text-lg flex items-center gap-2">
+                <span class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span> Оператор
+            </h1>
+        </div>
+        <div class="p-2 border-b border-gray-100">
+            <input type="text" id="search-users" placeholder="Поиск..." class="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100">
+        </div>
+        <div id="users-list" class="flex-1 overflow-y-auto custom-scroll p-2 space-y-1"></div>
+    </aside>
+
+    <!-- Основной чат -->
+    <main id="chat-view" class="flex-1 flex flex-col relative bg-gray-50 w-full transform translate-x-full md:translate-x-0 transition-transform duration-300 absolute md:static h-full z-20">
+        
+        <!-- Шапка -->
+        <header class="bg-white px-3 py-3 border-b border-gray-200 flex justify-between items-center shadow-sm z-20">
+            <!-- Левая часть: Кнопка назад и Имя -->
+            <div class="flex items-center gap-2 cursor-pointer" onclick="backToList()">
+                <button class="md:hidden text-gray-500 p-1">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <div>
+                    <h2 id="chat-title" class="text-base font-bold text-gray-800 leading-tight">Чат</h2>
+                    <div class="flex items-center gap-2 text-[10px] text-gray-500">
+                        <span id="user-id-display">--</span>
+                        <span id="typing-indicator" class="text-blue-500 font-medium hidden">✍ печатает...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Правая часть: Переключатели и Настройки -->
+            <div class="flex items-center gap-2">
+                
+                <!-- Панель управления (Очистить + Режим) -->
+                <div id="controls-area" class="flex items-center gap-2 opacity-50 pointer-events-none transition-opacity">
+                    <!-- Кнопка очистки (скрыта на очень маленьких экранах) -->
+                    <button onclick="clearChatHistory()" class="text-red-500 hidden sm:block text-xs font-medium">Очистить</button>
+                    
+                    <!-- Переключатель АВТО/РУЧНОЙ -->
+                    <div class="flex items-center gap-1 border-l pl-2 border-gray-200">
+                        <div class="flex flex-col items-center">
+                            <span class="text-[8px] font-bold text-gray-400 mb-0.5">РЕЖИМ</span>
+                            <div class="relative inline-block w-8 align-middle select-none">
+                                <input type="checkbox" id="manual-mode-toggle" class="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-4 appearance-none cursor-pointer border-gray-300 transition-all duration-200 ease-in"/>
+                                <label for="manual-mode-toggle" class="toggle-label block overflow-hidden h-4 rounded-full bg-gray-300 cursor-pointer transition-colors"></label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Кнопка настроек (Шестеренка) - ТЕПЕРЬ ВНУТРИ ПОТОКА -->
+                <button onclick="toggleSettings()" class="lg:hidden ml-1 p-2 bg-gray-100 rounded-full text-gray-600 hover:bg-gray-200">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                </button>
+            </div>
+        </header>
+
+        <div id="messages-container" class="flex-1 overflow-y-auto p-4 space-y-3 custom-scroll bg-gray-50" onclick="/* prevent back */">
+            <p class="text-center text-gray-400 mt-10">Загрузка...</p>
+        </div>
+
+        <div class="bg-white p-3 border-t border-gray-200 flex flex-col gap-2" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center px-1">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="send-as-user" class="rounded text-blue-600 focus:ring-blue-500 border-gray-300">
+                    <span class="text-[10px] font-medium text-gray-600">Фейк (от юзера)</span>
+                </label>
+            </div>
+            <form onsubmit="sendAdminMessage(event)" class="flex gap-2">
+                <input type="text" id="admin-input" disabled placeholder="Ответ..." class="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all">
+                <button type="submit" id="send-btn" disabled class="bg-blue-600 text-white px-4 py-3 rounded-xl font-medium shadow-lg">➤</button>
+            </form>
+        </div>
+    </main>
+
+    <!-- Правая панель (Настройки) -->
+    <aside id="settings-sidebar" class="fixed inset-y-0 right-0 w-72 bg-white border-l border-gray-200 p-4 transform translate-x-full transition-transform duration-300 z-40 flex flex-col gap-6 shadow-2xl">
+        <div class="flex justify-between items-center border-b pb-2">
+            <h3 class="font-bold text-gray-800">Настройки</h3>
+            <button onclick="toggleSettings()" class="text-gray-500 text-xl">✕</button>
+        </div>
+        
+        <div>
+            <h3 class="font-bold text-gray-700 text-xs uppercase mb-2">Характер (Промпт)</h3>
+            <div class="flex flex-wrap gap-2 mb-2">
+                <button onclick="setPrompt('Ты — дерзкий гопник.')" class="text-[10px] px-2 py-1 bg-gray-200 rounded">Гопник</button>
+                <button onclick="setPrompt('Ты — строгий учитель.')" class="text-[10px] px-2 py-1 bg-gray-200 rounded">Учитель</button>
+                <button onclick="setPrompt('Ты — Gemini.')" class="text-[10px] px-2 py-1 bg-gray-200 rounded">Сброс</button>
+            </div>
+            <textarea id="system-prompt-input" rows="6" class="w-full text-sm p-2 bg-gray-50 border border-gray-200 rounded-lg" placeholder="Ты — Gemini..."></textarea>
+            <button onclick="saveSystemPrompt()" class="mt-2 w-full bg-black text-white text-xs py-2 rounded-lg">Сохранить</button>
+        </div>
+
+        <div class="flex-1">
+            <h3 class="font-bold text-gray-700 text-xs uppercase mb-2">Быстрые ответы</h3>
+            <div class="space-y-2">
+                <button onclick="quickReply('Здравствуйте! Чем могу помочь?')" class="w-full text-left px-3 py-2 text-xs bg-gray-50 hover:bg-blue-50 rounded-lg border border-gray-100">👋 Здравствуйте...</button>
+                <button onclick="quickReply('Минуту, уточняю...')" class="w-full text-left px-3 py-2 text-xs bg-gray-50 hover:bg-blue-50 rounded-lg border border-gray-100">⏳ Минуту...</button>
+                <button onclick="clearChatHistory()" class="w-full text-left px-3 py-2 text-xs bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-100 mt-4">🗑 Очистить историю</button>
+            </div>
+        </div>
+    </aside>
+
+    <script>
+        const firebaseConfig = { apiKey: "AIzaSyDeodS109r--UF7i-A2xFnbNOyOsd6Bl04", authDomain: "neurisety.firebaseapp.com", databaseURL: "https://neurisety-default-rtdb.firebaseio.com", projectId: "neurisety", storageBucket: "neurisety.firebasestorage.app", messagingSenderId: "164602429522", appId: "1:164602429522:web:e1a2be798e6811f7701f8b", measurementId: "G-3QXH8E6RM7" };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let currentUserId = null;
+        const toggleEl = document.getElementById('manual-mode-toggle');
+        const searchInput = document.getElementById('search-users');
+        const promptInput = document.getElementById('system-prompt-input');
+        const notificationSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+
+        // UI Helpers for Mobile
+        function showChat() {
+            document.getElementById('sidebar-list').classList.add('-translate-x-full'); // Hide list
+            document.getElementById('chat-view').classList.remove('translate-x-full'); // Show chat
+        }
+        function backToList() {
+            if(window.innerWidth >= 768) return; // Ignore on desktop
+            document.getElementById('sidebar-list').classList.remove('-translate-x-full'); // Show list
+            document.getElementById('chat-view').classList.add('translate-x-full'); // Hide chat
+            currentUserId = null;
+        }
+        function toggleSettings() {
+            document.getElementById('settings-sidebar').classList.toggle('translate-x-full');
+        }
+
+        // --- CORE LOGIC ---
+        
+        // 1. Fetch Users & Statuses
+        db.ref('chats').on('value', snapshot => {
+            const data = snapshot.val() || {};
+            db.ref('status').once('value', statusSnap => {
+                const statuses = statusSnap.val() || {};
+                renderUserList(data, statuses);
+            });
+        });
+
+        // 2. Realtime Listeners for Typing & Status
+        db.ref('status').on('value', snap => {
+            db.ref('chats').once('value', chatSnap => renderUserList(chatSnap.val() || {}, snap.val() || {}));
+        });
+
+        function renderUserList(chatData, statusData) {
+            const listEl = document.getElementById('users-list');
+            listEl.innerHTML = '';
+            const filter = searchInput.value.toLowerCase();
+            const sortedIds = Object.keys(chatData).sort((a,b) => (chatData[b].lastActive || 0) - (chatData[a].lastActive || 0));
+
+            sortedIds.forEach(userId => {
+                if (!userId.toLowerCase().includes(filter)) return;
+                const userData = chatData[userId];
+                const lastMsg = userData.messages ? Object.values(userData.messages).pop() : null;
+                const preview = lastMsg ? (lastMsg.content ? lastMsg.content.substring(0, 20) : '[Файл]') : 'Новый';
+                
+                const isOnline = statusData[userId] === "online";
+                const isTyping = userData.typing && userData.typing.user;
+                const isWaiting = lastMsg && lastMsg.role === 'user' && !lastMsg.isFake && userData.settings?.isManual;
+
+                const div = document.createElement('div');
+                div.className = `p-3 rounded-xl cursor-pointer mb-1 border relative ${currentUserId === userId ? 'bg-blue-50 border-blue-200' : 'bg-white border-transparent'}`;
+                div.onclick = () => selectUser(userId);
+
+                const statusDot = `<span class="w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-300'} border border-white"></span>`;
+
+                div.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            ${statusDot}
+                            <span class="font-bold text-sm text-gray-700">User ${userId.substr(5,4)}</span>
+                        </div>
+                        <span class="text-[10px] text-gray-400">${new Date(userData.lastActive||0).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
+                    </div>
+                    <div class="flex justify-between items-center mt-1">
+                        <div class="text-xs text-gray-500 truncate w-32 ${isTyping ? 'text-blue-500 font-bold' : ''}">
+                            ${isTyping ? '✍ Печатает...' : preview}
+                        </div>
+                        ${isWaiting ? '<span class="flex h-2 w-2 rounded-full bg-orange-500 animate-pulse"></span>' : ''}
+                    </div>
+                `;
+                listEl.appendChild(div);
+            });
+        }
+
+        searchInput.addEventListener('input', () => db.ref('chats').once('value', sn => renderUserList(sn.val() || {}, {})));
+
+        function selectUser(userId) {
+            currentUserId = userId;
+            document.getElementById('user-id-display').innerText = userId;
+            showChat(); 
+
+            document.getElementById('controls-area').style.opacity = '1';
+            document.getElementById('controls-area').style.pointerEvents = 'auto';
+            document.getElementById('admin-input').disabled = false;
+            document.getElementById('send-btn').disabled = false;
+
+            db.ref(`chats/${userId}/settings`).once('value', sn => {
+                const s = sn.val() || {};
+                toggleEl.checked = s.isManual || false;
+                promptInput.value = s.systemPrompt || "Ты — Gemini.";
+            });
+
+            db.ref(`chats/${userId}/typing`).on('value', snap => {
+                const t = snap.val() || {};
+                const ind = document.getElementById('typing-indicator');
+                if (t.user) { ind.innerText = "✍ печатает..."; ind.classList.remove('hidden'); }
+                else if (t.ai) { ind.innerText = "🤖 думает..."; ind.classList.remove('hidden'); }
+                else { ind.classList.add('hidden'); }
+            });
+
+            db.ref(`chats/${userId}/messages`).on('value', sn => renderMessages(sn.val() || {}));
+        }
+
+        toggleEl.addEventListener('change', (e) => {
+            if (currentUserId) db.ref(`chats/${currentUserId}/settings/isManual`).set(e.target.checked);
+        });
+
+        function setPrompt(text) { promptInput.value = text; }
+        function saveSystemPrompt() {
+            if (!currentUserId) return alert("Выберите чат!");
+            db.ref(`chats/${currentUserId}/settings/systemPrompt`).set(promptInput.value);
+            alert("Сохранено!");
+        }
+        function clearChatHistory() {
+            if (currentUserId && confirm("Удалить?")) db.ref(`chats/${currentUserId}/messages`).remove();
+        }
+
+        function renderMessages(msgsObj) {
+            const container = document.getElementById('messages-container');
+            container.innerHTML = '';
+            if(!msgsObj) return;
+            const msgs = Object.values(msgsObj).sort((a,b) => a.timestamp - b.timestamp);
+
+            msgs.forEach(msg => {
+                const isUser = msg.role === 'user';
+                const div = document.createElement('div');
+                let bgClass = isUser 
+                    ? (msg.isFake ? 'bg-gray-200 text-gray-700 italic border border-gray-300' : 'bg-white border border-gray-200') 
+                    : 'bg-blue-600 text-white';
+                
+                div.className = `flex flex-col ${isUser ? 'items-start' : 'items-end'} w-full`;
+                const img = msg.image ? `<img src="${msg.image}" class="max-w-[150px] rounded mb-2 border cursor-pointer" onclick="window.open(this.src)">` : '';
+                
+                div.innerHTML = `<span class="text-[10px] text-gray-400 mb-1">${isUser ? (msg.isFake?'Фейк':'Юзер') : 'Вы'}</span><div class="${bgClass} px-4 py-2 rounded-2xl max-w-[80%] text-sm shadow-sm break-words">${img}${msg.content}</div>`;
+                container.appendChild(div);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function sendAdminMessage(e) {
+            e.preventDefault();
+            const input = document.getElementById('admin-input');
+            const asUser = document.getElementById('send-as-user').checked;
+            const text = input.value.trim();
+            if (!text || !currentUserId) return;
+
+            const payload = { role: asUser ? 'user' : 'admin_injection', content: text, timestamp: Date.now() };
+            if(asUser) payload.isFake = true;
+
+            db.ref(`chats/${currentUserId}/messages`).push(payload);
+            input.value = '';
+        }
+
+        function quickReply(text) {
+            const input = document.getElementById('admin-input');
+            input.value = text;
+            input.focus();
+        }
+    </script>
+</body>
+</html>
